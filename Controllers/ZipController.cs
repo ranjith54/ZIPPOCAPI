@@ -49,8 +49,7 @@ namespace ZIPPOCAPI.Controllers
                     }
                     catch (HttpRequestException)
                     {
-                        // Log the error and continue
-                        // Example: _logger.LogError($"Failed to download {fileUrl}");
+                        // Log the error and continue                        
                     }
 
                     return new { fileUrl, fileContent }; // Return both URL and content for further processing
