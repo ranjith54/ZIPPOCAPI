@@ -20,40 +20,51 @@ namespace ZIPPOCAPI.Controllers
         }
 
         /// <summary>
-        /// Downloads multiple files from the given URLs and bundles them into a single ZIP file.
-        /// Each file is fetched using an HTTP GET request and added to the ZIP archive.
-        /// Duplicate file names are handled by appending a numeric suffix to ensure unique names.
-        /// Skips any files that fail to download due to network issues or invalid URLs.
+        /// Downloads multiple items (files or folders), creates a ZIP archive, and returns it as a downloadable file.
         /// </summary>
-        /// <param name="fileUrls">Array of URLs from which files will be downloaded.</param>
-        /// <returns>A ZIP file containing the downloaded files, or a BadRequest if no URLs are provided.</returns>
-        [HttpPost("download-multiple-files")]
-        public async Task<IActionResult> DownloadMultipleFiles([FromBody] string[] fileUrls)
+        /// <param name="items">A list of items (files and folders) to include in the ZIP file.</param>
+        /// <param name="zipFileName">The name of the resulting ZIP file (without the .zip extension).</param>
+        /// <returns>A downloadable ZIP file containing the specified items.</returns>
+        [HttpPost("download-multiple-items")]
+        public async Task<IActionResult> DownloadMultipleItems(List<ZipItem> items, string zipFileName)
         {
-            if (fileUrls == null || fileUrls.Length == 0)
+            // Check if items are provided and if zipFileName is valid
+            if (items == null || items.Count == 0 || string.IsNullOrWhiteSpace(zipFileName))
             {
-                return BadRequest("No file URLs provided.");
+                return BadRequest("No items provided or invalid zip file name.");
             }
 
             using var memoryStream = new MemoryStream();
             using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
             {
-                // Create tasks to download each file in parallel
-                var downloadTasks = fileUrls.Select(async fileUrl =>
+                // Process folder creation first
+                foreach (var folder in items.Where(item => item.Type == ItemType.Folder))
                 {
-                    // Try to download the file, return null if download fails
-                    byte[]? fileContent = null;
-                    try
-                    {
-                        fileContent = await _httpClient.GetByteArrayAsync(fileUrl);
-                    }
-                    catch (HttpRequestException)
-                    {
-                        // Log the error and continue                        
-                    }
+                    // Create nested folders based on the folderPath and folder name
+                    string fullFolderPath = Path.Combine(folder.FolderPath, folder.Name).Replace("\\", "/").TrimEnd('/') + "/";
 
-                    return new { fileUrl, fileContent }; // Return both URL and content for further processing
-                }).ToList();
+                    // Create the folder in the ZIP archive
+                    archive.CreateEntry(fullFolderPath);
+                }
+
+                // Create tasks to download each file in parallel
+                var downloadTasks = items.Where(item => item.Type == ItemType.File)
+                                         .Select(async item =>
+                                         {
+                                             byte[]? fileContent = null;
+                                             try
+                                             {
+                                                 // Attempt to download the file
+                                                 fileContent = await _httpClient.GetByteArrayAsync(item.Url);
+                                             }
+                                             catch (HttpRequestException ex)
+                                             {
+                                                 // Log the error here if necessary
+                                                 //_logger.LogError(ex, $"Failed to download file: {item.Url}");
+                                             }
+
+                                             return new { item.Url, fileContent, item.Name, item.FolderPath };
+                                         }).ToList();
 
                 // Wait for all download tasks to complete
                 var downloadedFiles = await Task.WhenAll(downloadTasks);
@@ -61,13 +72,16 @@ namespace ZIPPOCAPI.Controllers
                 // Process each successfully downloaded file and add it to the zip
                 foreach (var file in downloadedFiles)
                 {
-                    if (file.fileContent != null) // Ensure the file was downloaded successfully
+                    if (file.fileContent != null)
                     {
-                        // Get the file name from the URL (handle potential query params)
-                        var fileName = Path.GetFileName(file.fileUrl).Split('?')[0];
+                        var fileName = file.Name;
+                        var folderPath = string.IsNullOrEmpty(file.FolderPath) ? "" : file.FolderPath.TrimEnd('/') + "/";
 
-                        // Create a zip entry for the downloaded file
-                        var zipEntry = archive.CreateEntry(fileName, CompressionLevel.Fastest);
+                        // Ensure the full folder path for the file is nested properly
+                        var fullPath = $"{folderPath}{fileName}".Replace("\\", "/");
+
+                        // Create a zip entry for the downloaded file, including the folder path
+                        var zipEntry = archive.CreateEntry(fullPath, CompressionLevel.Fastest);
 
                         // Write the downloaded file into the zip entry
                         using var entryStream = zipEntry.Open();
@@ -76,11 +90,12 @@ namespace ZIPPOCAPI.Controllers
                 }
             }
 
-            // Reset the position of the memory stream
             memoryStream.Seek(0, SeekOrigin.Begin);
 
             // Return the zip file as a downloadable file
-            return File(memoryStream.ToArray(), "application/zip", "Files.zip");
+            return File(memoryStream.ToArray(), "application/zip", $"{zipFileName}.zip");
         }
+
+
     }
 }
