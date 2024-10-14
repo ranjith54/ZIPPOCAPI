@@ -20,11 +20,11 @@ namespace ZIPPOCAPI.Controllers
         }
 
         /// <summary>
-        /// Downloads multiple items (files or folders), creates a ZIP archive, and returns it as a downloadable file.
+        /// Downloads multiple items (files and folders) and compresses them into a ZIP archive.
         /// </summary>
-        /// <param name="items">A list of items (files and folders) to include in the ZIP file.</param>
-        /// <param name="zipFileName">The name of the resulting ZIP file (without the .zip extension).</param>
-        /// <returns>A downloadable ZIP file containing the specified items.</returns>
+        /// <param name="items">A list of ZipItem objects, which can be files or folders.</param>
+        /// <param name="zipFileName">The name of the resulting ZIP file.</param>
+        /// <returns>An IActionResult containing the ZIP file for download.</returns>
         [HttpPost("download-multiple-items")]
         public async Task<IActionResult> DownloadMultipleItems(List<ZipItem> items, string zipFileName)
         {
@@ -37,11 +37,13 @@ namespace ZIPPOCAPI.Controllers
             using var memoryStream = new MemoryStream();
             using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
             {
-                // Process folder creation first
+                // Create nested folders based on the folderPath and folder name
                 foreach (var folder in items.Where(item => item.Type == ItemType.Folder))
                 {
-                    // Create nested folders based on the folderPath and folder name
-                    string fullFolderPath = Path.Combine(folder.FolderPath, folder.Name).Replace("\\", "/").TrimEnd('/') + "/";
+                    // Construct the full folder path
+                    string fullFolderPath = Path.Combine(folder.FolderPath, folder.Name)
+                        .Replace("\\", "/")  // Ensure paths are formatted correctly for ZIP
+                        .TrimEnd('/') + "/"; // Ensure folder path ends with a slash
 
                     // Create the folder in the ZIP archive
                     archive.CreateEntry(fullFolderPath);
@@ -49,30 +51,31 @@ namespace ZIPPOCAPI.Controllers
 
                 // Create tasks to download each file in parallel
                 var downloadTasks = items.Where(item => item.Type == ItemType.File)
-                                         .Select(async item =>
-                                         {
-                                             byte[]? fileContent = null;
-                                             try
-                                             {
-                                                 // Attempt to download the file
-                                                 fileContent = await _httpClient.GetByteArrayAsync(item.Url);
-                                             }
-                                             catch (HttpRequestException ex)
-                                             {
-                                                 // Log the error here if necessary
-                                                 //_logger.LogError(ex, $"Failed to download file: {item.Url}");
-                                             }
+                    .Select(async item =>
+                    {
+                        byte[]? fileContent = null;
+                        try
+                        {
+                            // Attempt to download the file
+                            fileContent = await _httpClient.GetByteArrayAsync(item.Url);
+                        }
+                        catch (HttpRequestException ex)
+                        {
+                            // Log the error if necessary
+                            //_logger.LogError(ex, $"Failed to download file: {item.Url}");
+                        }
 
-                                             return new { item.Url, fileContent, item.Name, item.FolderPath };
-                                         }).ToList();
+                        // Return file information including the content, name, and folder path
+                        return new { item.Url, fileContent, item.Name, item.FolderPath };
+                    }).ToList();
 
                 // Wait for all download tasks to complete
                 var downloadedFiles = await Task.WhenAll(downloadTasks);
 
-                // Process each successfully downloaded file and add it to the zip
+                // Process each successfully downloaded file and add it to the ZIP
                 foreach (var file in downloadedFiles)
                 {
-                    if (file.fileContent != null)
+                    if (file.fileContent != null) // Ensure the file was downloaded successfully
                     {
                         var fileName = file.Name;
                         var folderPath = string.IsNullOrEmpty(file.FolderPath) ? "" : file.FolderPath.TrimEnd('/') + "/";
@@ -80,21 +83,22 @@ namespace ZIPPOCAPI.Controllers
                         // Ensure the full folder path for the file is nested properly
                         var fullPath = $"{folderPath}{fileName}".Replace("\\", "/");
 
-                        // Create a zip entry for the downloaded file, including the folder path
+                        // Create a ZIP entry for the downloaded file, including the folder path
                         var zipEntry = archive.CreateEntry(fullPath, CompressionLevel.Fastest);
 
-                        // Write the downloaded file into the zip entry
+                        // Write the downloaded file into the ZIP entry
                         using var entryStream = zipEntry.Open();
                         await entryStream.WriteAsync(file.fileContent);
                     }
                 }
             }
 
-            memoryStream.Seek(0, SeekOrigin.Begin);
+            memoryStream.Seek(0, SeekOrigin.Begin); // Reset the memory stream position
 
-            // Return the zip file as a downloadable file
+            // Return the ZIP file as a downloadable file
             return File(memoryStream.ToArray(), "application/zip", $"{zipFileName}.zip");
         }
+
 
 
     }
