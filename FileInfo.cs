@@ -1,16 +1,7 @@
 ﻿namespace ZIPPOCAPI
 {
     /// <summary>
-    /// Enum to identify the type of item (File or Folder).
-    /// </summary>
-    public enum ItemType
-    {
-        File,
-        Folder
-    }
-
-    /// <summary>
-    /// Represents an item to be added to the ZIP archive. This can either be a file or a folder.
+    /// Represents a file or folder to be added to a ZIP archive.
     /// </summary>
     public class ZipItem
     {
@@ -20,18 +11,44 @@
         public string Name { get; set; }
 
         /// <summary>
-        /// The URL for downloading the file. This will be null for folders.
+        /// The URL to download the file content from (only for files).
         /// </summary>
-        public string? Url { get; set; }
+        public string? Url { get; set; } // For files only
 
         /// <summary>
-        /// The folder path where the file or folder should be placed in the ZIP archive.
+        /// Specifies whether the item is a file or folder.
         /// </summary>
-        public string FolderPath { get; set; }
+        public ItemType Type { get; set; }
 
         /// <summary>
-        /// Indicates whether this item is a file or a folder.
+        /// List of nested ZipItems (only for folders).
         /// </summary>
-        public ItemType Type { get; set; } // Whether this is a file or a folder
+        public List<ZipItem>? Items { get; set; }  // For folders only
     }
+
+    /// <summary>
+    /// Enum to represent the type of item (File or Folder).
+    /// </summary>
+    public enum ItemType
+    {
+        File = 0,
+        Folder = 1
+    }
+
+    /// <summary>
+    /// Represents a request for downloading a ZIP file that contains multiple items.
+    /// </summary>
+    public class DownloadZip
+    {
+        /// <summary>
+        /// Gets or sets the list of items (files and folders) to be included in the ZIP file.
+        /// </summary>
+        public List<ZipItem> Items { get; set; }
+
+        /// <summary>
+        /// Gets or sets the name of the resulting ZIP file.
+        /// </summary>
+        public string Name { get; set; }
+    }
+
 }
